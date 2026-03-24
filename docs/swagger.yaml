@@ -1,0 +1,22 @@
+basePath: /
+host: localhost:3000
+info:
+  contact: {}
+  description: Chi swagger
+  title: Parser API
+  version: "1.0"
+paths:
+  /ping:
+    get:
+      description: Возвращает pong
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: pong
+          schema:
+            type: string
+      summary: Проверка сервера
+      tags:
+      - health
+swagger: "2.0"
