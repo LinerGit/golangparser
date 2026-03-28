@@ -7,25 +7,25 @@ package main
 // @BasePath /
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
 	"log"
 	"net/http"
 	"os"
+	"parser/internal/app"
 	"parser/internal/config"
+	"parser/internal/database"
 	"parser/internal/logger"
 	"parser/internal/model"
 	"parser/internal/repository"
-	"strings"
+	"strconv"
 
 	_ "parser/docs"
 
-	"github.com/PuerkitoBio/goquery"
 	"github.com/go-chi/chi/v5"
 	_ "github.com/lib/pq"
 	httpSwagger "github.com/swaggo/http-swagger"
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
 )
 
 // Ping godoc
@@ -42,18 +42,11 @@ func PingExample(w http.ResponseWriter, r *http.Request) {
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("failed to load config ", err)
+		log.Fatalf("failed to load config %v", err)
 	}
 
 	logger := logger.New(cfg)
-
-	db, err := gorm.Open(postgres.Open(cfg.DbDsn), &gorm.Config{})
-	if err != nil {
-		logger.Error().Msgf("failed to conn to db")
-		return
-	}
-	logger.Info().Msg("db connected")
-
+	db, err := database.NewDB()
 	repo := repository.NewRepository(db, &logger)
 
 	_ = repo
@@ -61,35 +54,26 @@ func main() {
 	r := chi.NewRouter()
 
 	r.Get("/ping", PingExample)
+	//r.Get("/getbook/{id}", http)
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
+	r.Get("/job/{id}", func(w http.ResponseWriter, r *http.Request) {
+		idParam := chi.URLParam(r, "id")
+		id, _ := strconv.Atoi(idParam)
+
+		book, err := repository.GetBookById(context.Background(), uint(id))
+		if err != nil {
+			http.Error(w, err.Error(), 404)
+			return
+		}
+
+		json.NewEncoder(w).Encode(book)
+	})
 
 	http.ListenAndServe(":3000", r)
 
 	db.AutoMigrate(model.Book{})
 
-	res, err := http.Get("https://books.toscrape.com/")
-	if err != nil {
-		log.Fatal("Failed to connect to the target page", err)
-	}
-	defer res.Body.Close()
-	if res.StatusCode != 200 {
-		log.Fatalf("HTTP Error %d: %s", res.StatusCode, res.Status)
-	}
-
-	doc, err := goquery.NewDocumentFromReader(res.Body)
-	if err != nil {
-		log.Fatal("Failed to parse the HTML document", err)
-	}
-
-	var books []model.Book
-	doc.Find("article.product_pod").Each(func(i int, p *goquery.Selection) {
-		book := model.Book{}
-		book.Name = p.Find("a").Text()
-		book.Price = p.Find("p.price_color").Text()
-		book.Stock = p.Find("p.instock.availability").Text()
-		book.Stock = strings.TrimSpace(book.Stock)
-		books = append(books, book)
-	})
+	books, err := app.ParseBooks("https://books.toscrape.com/")
 
 	db.Create(&books)
 
